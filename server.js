@@ -57,6 +57,40 @@ function isSameSong(a, b) {
 }
 
 async function fetchYouTubeMusicIds(query, headers) {
+  // Try the YouTube Music internal search API first — it returns JSON with video IDs.
+  try {
+    const apiRes = await fetch('https://music.youtube.com/youtubei/v1/search?prettyPrint=false', {
+      method: 'POST',
+      headers: {
+        ...headers,
+        'Content-Type': 'application/json',
+        'X-Youtube-Client-Name': '67',
+        'X-Youtube-Client-Version': '1.20240101.01.00',
+        'Origin': 'https://music.youtube.com',
+        'Referer': 'https://music.youtube.com/',
+      },
+      body: JSON.stringify({
+        query,
+        context: {
+          client: {
+            clientName: 'WEB_REMIX',
+            clientVersion: '1.20240101.01.00',
+            hl: 'en',
+          },
+        },
+        params: 'EgWKAQIIAWoKEAMQBBAJEAoQBQ%3D%3D', // filter: songs
+      }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (apiRes.ok) {
+      const json = await apiRes.json();
+      const text = JSON.stringify(json);
+      const ids = Array.from(text.matchAll(/"videoId":"([a-zA-Z0-9_-]{11})"/g)).map(m => m[1]);
+      if (ids.length) return ids;
+    }
+  } catch { /* fall through to HTML scrape */ }
+
+  // Fallback: scrape the HTML search page.
   const q = encodeURIComponent(query);
   const url = `https://music.youtube.com/search?q=${q}`;
   const res = await fetch(url, { headers, signal: AbortSignal.timeout(10_000) });

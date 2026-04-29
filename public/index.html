@@ -474,7 +474,10 @@ async function playSongForEntry(song) {
     return;
   }
 
-  var queryTitle = song.isReplaced ? (song.originalTitle || song.title || '') : (song.title || '');
+  // For replaced songs, search by the replacement artist only — not the original song title.
+  // Passing the original title (e.g. "Geek Stink Breath") causes YouTube to return the
+  // wrong artist's video instead of a song by the replacement artist.
+  var queryTitle = song.isReplaced ? '' : (song.title || '');
   var resolved = await resolveVideoIdForSong({ artist: song.artist, title: queryTitle });
   if (resolved) {
     song.videoId = resolved;
@@ -482,7 +485,12 @@ async function playSongForEntry(song) {
     return;
   }
 
-  playArtistSearch(song.artist);
+  // Only fall back to YouTube playlist search for non-replaced songs.
+  // Replaced songs intentionally avoid this because loadPlaylist uses regular YouTube,
+  // not YouTube Music — and may surface the wrong artist.
+  if (!song.isReplaced) {
+    playArtistSearch(song.artist);
+  }
 }
 
 document.addEventListener('pointerdown', function () {
@@ -546,7 +554,7 @@ function pickRandomReplacementArtist(toField) {
 
 // Seed defaults on first visit
 if (!localStorage.getItem('punk_rules_seeded')) {
-  saveRules([{ from: 'Green Day', to: ' Propagandhi; NOFX; Bad Religion; Osker' }, { from: 'Rancid', to: ' Propagandhi; NOFX; Bad Religion; Osker' }]);
+  saveRules([{ from: 'Green Day', to: 'Propagandhi; NOFX; Bad Religion; Osker' }, { from: 'Rancid', to: ' Propagandhi; NOFX; Bad Religion; Osker' }]);
   localStorage.setItem('punk_rules_seeded', '1');
 }
 
@@ -576,10 +584,11 @@ function applyRules(song) {
         };
       }
 
-      // Last resort: keep display replaced even if we cannot swap playback yet.
+      // Last resort: no cached songs yet — title will be filled in by onStateChange
+      // once YouTube starts playing a video for the replacement artist.
       return {
         displayArtist: chosenArtist,
-        displayTitle: song.title,
+        displayTitle: '',
         playVideoId: null,
         originalArtist: song.artist,
         originalTitle: song.title,
@@ -724,7 +733,7 @@ function renderNowPlaying() {
     var titleEl  = document.getElementById('np-title');
     var artistEl = document.getElementById('np-artist');
     
-    titleEl.textContent = s.title;
+    titleEl.textContent = s.title || (s.isReplaced ? 'Loading…' : '');
     artistEl.textContent = s.artist;
     
     if (s.isReplaced) {
@@ -767,7 +776,7 @@ function renderPlaylist() {
   pl.innerHTML = state.history.map(function (s, i) {
     var active = cur && s.id === cur.id;
     var titleDisplay = s.isReplaced
-      ? '<span class="title-old">' + esc(s.originalTitle || '') + '</span><span class="artist-arrow">→</span><span class="title-new">' + esc(s.title) + '</span>'
+      ? '<span class="title-old">' + esc(s.originalTitle || '') + '</span><span class="artist-arrow">→</span><span class="title-new">' + esc(s.title || '…') + '</span>'
       : esc(s.title);
     var artistDisplay = s.isReplaced ? 
       '<span class="artist-old">' + esc(s.originalArtist) + '</span><span class="artist-arrow">→</span>' + esc(s.artist) :

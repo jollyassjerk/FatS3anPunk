@@ -81,7 +81,7 @@ async function resolveVideoIdByArtist(artist) {
   const allIds = [];
   for (const term of variants) {
     const q = encodeURIComponent(term);
-    const url = `https://www.youtube.com/results?search_query=${q}`;
+    const url = `https://music.youtube.com/search?q=${q}`;
     try {
       const res = await fetch(url, { headers, signal: AbortSignal.timeout(10_000) });
       if (!res.ok) continue;

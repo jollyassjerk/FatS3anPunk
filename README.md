@@ -1,14 +1,29 @@
-# FatS3anPunk — Thin Edition
+# FatS3anPunk
 
-**Same functionality. One file. One dependency. No build step.**
+A live punk-rock radio companion for [xmplaylist.com](https://xmplaylist.com) stations. Shows what's playing now, streams it via YouTube Music, and lets you swap out bands you're sick of with ones you actually like.
+
+**One file. One dependency. No build step.**
 
 ```
-thin/
-├── server.js          ← everything: poller, SSE, history, static serve (~150 lines)
+├── server.js        ← poller, SSE, history API, YouTube Music resolver
 ├── public/
-│   └── index.html     ← full punk-rock UI in vanilla JS (~350 lines)
-└── package.json       ← one dependency: express
+│   └── index.html   ← full punk-rock UI in vanilla JS
+└── package.json     ← one dependency: express
 ```
+
+## Features
+
+- Live now-playing via SSE (Server-Sent Events), polled from xmplaylist.com
+- 10-song history on load, up to 50 in memory
+- Embedded YouTube Music player — no API key required
+- Auto-advances to the next song when the current one ends
+- Band replacement rules — swap Green Day → Propagandhi, stored in `localStorage`
+- Semicolon-separated multi-band `To` field (e.g. `Propagandhi; Lagwagon; NOFX`)
+- Random substitution: searches YouTube Music with multiple query variants, picks from a pool of up to 40 results so you hear different songs each time
+- Video title updates live once the substituted track starts playing
+- Prev/Next controls + return-to-live button
+- Punk-rock UI: Black Ops One font, electric yellow on black, red accents
+- Exponential backoff on API errors, SSE heartbeat for proxy compatibility
 
 ## Resource Footprint
 
@@ -18,74 +33,84 @@ thin/
 | Build step | None |
 | Node.js RAM (idle) | ~35–45 MB |
 | Node.js RAM (active) | ~50–70 MB |
-| CPU (idle between polls) | ~0% |
+| CPU (idle) | ~0% |
 | Startup time | <1s |
 
-Works on Raspberry Pi Zero 2 W, cheap VPS, Docker, bare metal — anything with Node 18+.
+Runs on a Raspberry Pi Zero 2 W, cheap VPS, or any machine with Node 18+.
 
-## Quick Start
+## Ubuntu Quickstart
 
 ```bash
-cd thin
-npm install   # installs express only
+# 1. Install Node.js 20 LTS (skip if already installed)
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt-get install -y nodejs
+
+# 2. Clone and install
+git clone https://github.com/jollyassjerk/FatS3anPunk.git
+cd FatS3anPunk
+npm install
+
+# 3. Run (defaults to Green Day's Idiot Nation station)
 node server.js
 # → http://localhost:3000
+
+# Run a different station
+XMPLAYLIST_STATION=factionpunk node server.js
+```
+
+### Keep It Running (systemd — recommended)
+
+```bash
+# Create a service file
+sudo tee /etc/systemd/system/fats3anpunk.service > /dev/null <<EOF
+[Unit]
+Description=FatS3anPunk
+After=network.target
+
+[Service]
+WorkingDirectory=/home/$USER/FatS3anPunk
+ExecStart=/usr/bin/node server.js
+Restart=on-failure
+Environment=XMPLAYLIST_STATION=factionpunk
+Environment=PORT=3000
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable --now fats3anpunk
+sudo systemctl status fats3anpunk
+```
+
+### Keep It Running (pm2)
+
+```bash
+npm install -g pm2
+XMPLAYLIST_STATION=factionpunk pm2 start server.js --name fats3anpunk
+pm2 save && pm2 startup
+```
+
+### Keep It Running (nohup)
+
+```bash
+XMPLAYLIST_STATION=factionpunk nohup node server.js > punk.log 2>&1 &
 ```
 
 ## Configuration
 
-All config is via environment variables — no config files needed:
+All config via environment variables — no config files needed:
 
-```bash
-# Pick your station (from xmplaylist.com)
-XMPLAYLIST_STATION=factionpunk node server.js
+| Variable | Default | Description |
+|---|---|---|
+| `XMPLAYLIST_STATION` | `greendaysidiotnation` | Station slug from xmplaylist.com |
+| `PORT` | `3000` | HTTP port to listen on |
+| `POLL_INTERVAL_MS` | `30000` | How often to poll xmplaylist (ms) |
 
-# Custom port
-PORT=8080 node server.js
+## Finding Station Slugs
 
-# Adjust polling interval (default 30s)
-POLL_INTERVAL_MS=60000 node server.js
+Go to [xmplaylist.com](https://xmplaylist.com), pick a station, and copy the slug from the URL:
 ```
-
-## Features
-
-- ✅ Live now-playing via SSE (Server-Sent Events)
-- ✅ 10-song history on load, up to 50 in memory
-- ✅ YouTube playback via hidden IFrame (no API key required)
-- ✅ Trailing live: historical songs auto-advance through the playlist
-- ✅ Return-to-live button
-- ✅ Prev/Next controls
-- ✅ Band replacement rules (stored in localStorage)
-- ✅ Punk-rock UI (Black Ops One, electric yellow, dark theme)
-- ✅ Exponential backoff on API errors
-- ✅ Heartbeat keeps SSE alive through proxies
-
-## Keep It Running (Raspberry Pi)
-
-```bash
-# Option A: pm2
-npm install -g pm2
-XMPLAYLIST_STATION=factionpunk pm2 start server.js --name fats3anpunk
-pm2 save && pm2 startup
-
-# Option B: nohup (dead simple)
-XMPLAYLIST_STATION=factionpunk nohup node server.js > punk.log 2>&1 &
-
-# Option C: screen
-screen -dmS punk bash -c 'XMPLAYLIST_STATION=factionpunk node server.js'
+https://xmplaylist.com/station/factionpunk
+                                ^^^^^^^^^^^  ← this is XMPLAYLIST_STATION
 ```
-
-## What Was Cut vs Full Version
-
-| Feature | Full | Thin |
-|---------|------|------|
-| TypeScript | ✅ | ❌ (plain JS) |
-| React + Zustand | ✅ | ❌ (vanilla JS) |
-| Vite build | ✅ | ❌ (no build) |
-| Playwright tests | ✅ | ❌ |
-| GitHub Actions CI | ✅ | ❌ |
-| Docker | ✅ | ❌ |
-| Monorepo | ✅ | ❌ (single file) |
-| Dependencies | ~70+ | 1 |
-| RAM | ~120-200 MB | ~40-70 MB |
-| **Same UX** | ✅ | ✅ |

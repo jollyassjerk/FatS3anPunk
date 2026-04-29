@@ -377,6 +377,26 @@ window.onYouTubeIframeAPIReady = function () {
         if (e.data === YT.PlayerState.UNSTARTED) {
           setTimeout(function(){ tryPlay(); }, 220);
         }
+        if (e.data === YT.PlayerState.PLAYING) {
+          // Update title from actual YouTube video data for substituted songs
+          var s = state.currentSong;
+          if (s && s.isReplaced) {
+            try {
+              var data = ytPlayer.getVideoData();
+              if (data && data.title) {
+                // Strip "- Topic" suffix YouTube adds for auto-generated channels
+                var cleanTitle = data.title.replace(/\s*[-–]\s*Topic$/i, '').trim();
+                // Strip leading "artist - " prefix if present
+                cleanTitle = cleanTitle.replace(/^[^-–]+-\s*/i, '').trim() || cleanTitle;
+                if (cleanTitle && cleanTitle !== s.title) {
+                  s.title = cleanTitle;
+                  renderNowPlaying();
+                  renderPlaylist();
+                }
+              }
+            } catch (ex) { /* ignore */ }
+          }
+        }
         if (e.data === YT.PlayerState.ENDED) {
           if (isLikelyTrueTrackEnd()) onSongEnded();
           else setTimeout(function () { tryPlay(); }, 250);

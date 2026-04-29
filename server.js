@@ -56,9 +56,30 @@ function isSameSong(a, b) {
   return a && b && a.title === b.title && a.artist === b.artist;
 }
 
-async function resolveVideoIdByArtist(artist) {
-  const key = String(artist || '').trim().toLowerCase();
-  if (!key) return null;
+async function fetchYouTubeMusicIds(query, headers) {
+  const q = encodeURIComponent(query);
+  const url = `https://music.youtube.com/search?q=${q}`;
+  const res = await fetch(url, { headers, signal: AbortSignal.timeout(10_000) });
+  if (!res.ok) return [];
+  const html = await res.text();
+  return Array.from(html.matchAll(/"videoId":"([a-zA-Z0-9_-]{11})"/g)).map(m => m[1]);
+}
+
+async function fetchYouTubeWebIds(query, headers) {
+  const q = encodeURIComponent(query);
+  const url = `https://www.youtube.com/results?search_query=${q}`;
+  const res = await fetch(url, { headers, signal: AbortSignal.timeout(10_000) });
+  if (!res.ok) return [];
+  const html = await res.text();
+  return Array.from(html.matchAll(/"videoId":"([a-zA-Z0-9_-]{11})"/g)).map(m => m[1]);
+}
+
+async function resolveVideoIdByArtist(artist, title = '') {
+  const artistKey = String(artist || '').trim().toLowerCase();
+  const titleKey = String(title || '').trim().toLowerCase();
+  if (!artistKey) return null;
+
+  const key = `${artistKey}|${titleKey}`;
 
   const cached = videoSearchCache.get(key);
   if (cached && Array.isArray(cached.videoIds) && cached.videoIds.length && Date.now() - cached.ts < 6 * 60 * 60 * 1000) {
@@ -70,26 +91,36 @@ async function resolveVideoIdByArtist(artist) {
     'Accept-Language': 'en-US,en;q=0.9'
   };
 
-  const variants = [
-    `${artist} official music`,
-    `${artist} topic`,
-    `${artist} full album`,
-    `${artist} live`,
-    `${artist} punk`
-  ];
-
   const allIds = [];
-  for (const term of variants) {
-    const q = encodeURIComponent(term);
-    const url = `https://music.youtube.com/search?q=${q}`;
+  const exactQuery = titleKey ? `${artist} ${title}` : artist;
+  try {
+    allIds.push(...await fetchYouTubeMusicIds(exactQuery, headers));
+  } catch {
+    // Try fallback sources below.
+  }
+
+  // music.youtube.com often omits inline video IDs; fallback to youtube.com HTML.
+  if (!allIds.length) {
     try {
-      const res = await fetch(url, { headers, signal: AbortSignal.timeout(10_000) });
-      if (!res.ok) continue;
-      const html = await res.text();
-      const ids = Array.from(html.matchAll(/"videoId":"([a-zA-Z0-9_-]{11})"/g)).map(m => m[1]);
-      allIds.push(...ids);
+      allIds.push(...await fetchYouTubeWebIds(exactQuery, headers));
     } catch {
-      // Skip failed variant; continue building pool from others.
+      // Try fallback query below.
+    }
+  }
+
+  // If artist+title has no hits, fall back to artist-only.
+  if (!allIds.length && titleKey) {
+    try {
+      allIds.push(...await fetchYouTubeMusicIds(artist, headers));
+    } catch {
+      // Continue to web fallback below.
+    }
+    if (!allIds.length) {
+      try {
+        allIds.push(...await fetchYouTubeWebIds(artist, headers));
+      } catch {
+        // Return null below.
+      }
     }
   }
 
@@ -190,12 +221,13 @@ app.get('/api/history', (_req, res) => {
 app.get('/api/resolve-video', async (req, res) => {
   try {
     const artist = String(req.query.artist || '').trim();
+    const title = String(req.query.title || '').trim();
     if (!artist) return res.status(400).json({ error: 'artist query param required' });
 
-    const videoId = await resolveVideoIdByArtist(artist);
+    const videoId = await resolveVideoIdByArtist(artist, title);
     if (!videoId) return res.status(404).json({ error: 'no video found' });
 
-    res.json({ artist, videoId });
+    res.json({ artist, title, videoId });
   } catch (err) {
     res.status(502).json({ error: 'resolve failed', detail: err.message });
   }

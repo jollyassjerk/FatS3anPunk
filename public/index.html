@@ -378,16 +378,15 @@ window.onYouTubeIframeAPIReady = function () {
           setTimeout(function(){ tryPlay(); }, 220);
         }
         if (e.data === YT.PlayerState.PLAYING) {
-          // Update title from actual YouTube video data for substituted songs
+          // Update title from the active YouTube video for substituted songs.
+          // Guard by videoId so we do not apply stale metadata from a previous track.
           var s = state.currentSong;
-          if (s && s.isReplaced) {
+          if (s && s.isReplaced && s.videoId) {
             try {
               var data = ytPlayer.getVideoData();
-              if (data && data.title) {
-                // Strip "- Topic" suffix YouTube adds for auto-generated channels
+              if (data && data.title && data.video_id === s.videoId) {
+                // Strip "- Topic" suffix YouTube adds for auto-generated channels.
                 var cleanTitle = data.title.replace(/\s*[-–]\s*Topic$/i, '').trim();
-                // Strip leading "artist - " prefix if present
-                cleanTitle = cleanTitle.replace(/^[^-–]+-\s*/i, '').trim() || cleanTitle;
                 if (cleanTitle && cleanTitle !== s.title) {
                   s.title = cleanTitle;
                   renderNowPlaying();
@@ -447,11 +446,19 @@ function playArtistSearch(artistName) {
 }
 
 async function resolveVideoIdForArtist(artistName) {
-  var key = canonicalArtistKey(artistName);
-  if (!key) return null;
+  return resolveVideoIdForSong({ artist: artistName, title: '' });
+}
+
+async function resolveVideoIdForSong(songLike) {
+  var artist = songLike && songLike.artist ? String(songLike.artist).trim() : '';
+  if (!artist) return null;
+
+  var title = songLike && songLike.title ? String(songLike.title).trim() : '';
+  var qs = '/api/resolve-video?artist=' + encodeURIComponent(artist);
+  if (title) qs += '&title=' + encodeURIComponent(title);
 
   try {
-    var res = await fetch('/api/resolve-video?artist=' + encodeURIComponent(artistName));
+    var res = await fetch(qs);
     if (!res.ok) return null;
     var data = await res.json();
     return data && data.videoId ? String(data.videoId) : null;
@@ -467,7 +474,8 @@ async function playSongForEntry(song) {
     return;
   }
 
-  var resolved = await resolveVideoIdForArtist(song.artist);
+  var queryTitle = song.isReplaced ? (song.originalTitle || song.title || '') : (song.title || '');
+  var resolved = await resolveVideoIdForSong({ artist: song.artist, title: queryTitle });
   if (resolved) {
     song.videoId = resolved;
     playSong(resolved);

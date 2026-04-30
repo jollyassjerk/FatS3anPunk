@@ -317,7 +317,6 @@ var API_BASE = (function () {
 var ytPlayer  = null;
 var ytReady   = false;
 var ytPending = null;
-var ytPendingSearch = null;
 var userInteracted = false;
 var songLoadStartedAt = 0;
 
@@ -376,10 +375,6 @@ window.onYouTubeIframeAPIReady = function () {
           ytPending = null;
           setTimeout(function () { tryPlay(); }, 120);
         }
-        if (ytPendingSearch) {
-          playArtistSearch(ytPendingSearch);
-          ytPendingSearch = null;
-        }
       },
       onStateChange: function (e) {
         if (e.data === YT.PlayerState.UNSTARTED) {
@@ -409,7 +404,28 @@ window.onYouTubeIframeAPIReady = function () {
           else setTimeout(function () { tryPlay(); }, 250);
         }
       },
-      onError: function (e) { console.warn('[yt] error', e.data); }
+      onError: function (e) {
+        console.warn('[yt] error', e.data);
+        // 100 = not found, 101/150 = embedding not allowed (Topic-channel / Music-only videos)
+        if ((e.data === 100 || e.data === 101 || e.data === 150) && state.currentSong) {
+          var failedId = state.currentSong.videoId;
+          console.warn('[yt] embed blocked for', failedId, '— fetching alternative from YouTube Music');
+          state.currentSong.videoId = null;
+          var s = state.currentSong;
+          var qs = API_BASE + '/api/resolve-video?artist=' + encodeURIComponent(s.artist);
+          if (!s.isReplaced && s.title) qs += '&title=' + encodeURIComponent(s.title);
+          if (failedId) qs += '&exclude=' + encodeURIComponent(failedId);
+          fetch(qs)
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .then(function (data) {
+              if (data && data.videoId && state.currentSong) {
+                state.currentSong.videoId = data.videoId;
+                playSong(data.videoId);
+              }
+            })
+            .catch(function () { /* give up gracefully */ });
+        }
+      }
     }
   });
 };
@@ -427,30 +443,6 @@ function playSong(videoId) {
     setTimeout(function () { tryPlay(); }, 120);
   }
   else { ytPending = videoId; }
-}
-
-function playArtistSearch(artistName) {
-  if (!artistName) return;
-  var query = String(artistName).trim();
-  if (!query) return;
-
-  if (!(ytReady && ytPlayer)) {
-    ytPendingSearch = query;
-    return;
-  }
-
-  try {
-    // Fallback for substitutions with no known videoId yet.
-    markSongLoadStart();
-    ytPlayer.loadPlaylist({
-      listType: 'search',
-      list: query + ' official',
-      index: Math.floor(Math.random() * 3)
-    });
-    setTimeout(function () { tryPlay(); }, 180);
-  } catch {
-    // If search playlist fails, keep UI responsive and avoid hard crashes.
-  }
 }
 
 async function resolveVideoIdForArtist(artistName) {
@@ -491,13 +483,6 @@ async function playSongForEntry(song) {
     song.videoId = resolved;
     playSong(resolved);
     return;
-  }
-
-  // Only fall back to YouTube playlist search for non-replaced songs.
-  // Replaced songs intentionally avoid this because loadPlaylist uses regular YouTube,
-  // not YouTube Music — and may surface the wrong artist.
-  if (!song.isReplaced) {
-    playArtistSearch(song.artist);
   }
 }
 
@@ -649,7 +634,14 @@ function relTime(iso) {
 }
 
 // ── Actions ──────────────────────────────────────────────────────────────────
+var BANNED_ARTISTS_CLIENT = ['godsmack'];
+
+function isBannedArtistClient(artist) {
+  return BANNED_ARTISTS_CLIENT.indexOf(String(artist || '').toLowerCase().trim()) !== -1;
+}
+
 function newLiveSong(song) {
+  if (isBannedArtistClient(song.artist)) { return; }
   var applied = applyRules(song);
   // Cache the original song by artist (for future replacements)
   cacheArtistSong(song.artist, song.title, song.videoId);
@@ -661,6 +653,7 @@ function newLiveSong(song) {
     title: applied.displayTitle,
     playedAt: song.playedAt,
     videoId: applied.playVideoId,
+    ytMusicVideoId: song.ytMusicVideoId || null,
     originalArtist: applied.originalArtist,
     originalTitle: applied.originalTitle,
     isReplaced: applied.isReplaced
@@ -820,10 +813,11 @@ document.getElementById('btn-next').addEventListener('click', function () {
 });
 
 document.getElementById('btn-thumbsup').addEventListener('click', function () {
-  if (!state.currentSong || !state.currentSong.videoId) return;
-  // Open YouTube Music with the song (user can then thumbs up if logged in)
-  var url = 'https://music.youtube.com/watch?v=' + encodeURIComponent(state.currentSong.videoId);
-  window.open(url, '_blank');
+  var s = state.currentSong;
+  if (!s) return;
+  var id = s.ytMusicVideoId || s.videoId;
+  if (!id) return;
+  window.open('https://music.youtube.com/watch?v=' + encodeURIComponent(id), '_blank');
 });
 
 // ── Replacements drawer ──────────────────────────────────────────────────────
@@ -914,6 +908,7 @@ fetch(API_BASE + '/api/history')
         title: applied.displayTitle,
         playedAt: s.playedAt,
         videoId: applied.playVideoId,
+        ytMusicVideoId: s.ytMusicVideoId || null,
         originalArtist: applied.originalArtist,
         originalTitle: applied.originalTitle,
         isReplaced: applied.isReplaced

@@ -29,6 +29,13 @@ const MAX_HIST   = 50;
 const BOOT_SONGS = 10;
 const videoSearchCache = new Map();
 
+// ─── Banned artists (hard filter — never surface these) ──────────────────────
+const BANNED_ARTISTS = new Set(['godsmack']);
+
+function isBannedArtist(artist) {
+  return BANNED_ARTISTS.has(String(artist || '').toLowerCase().trim());
+}
+
 // ─── In-memory state ─────────────────────────────────────────────────────────
 
 let history   = [];   // newest first
@@ -37,18 +44,24 @@ const clients = new Set();
 
 // ─── Song normaliser (handles both xmplaylist schema versions) ────────────────
 
-function extractVideoId(entry) {
-  if (entry.youtube_id) return entry.youtube_id;
+function extractVideoIds(entry) {
+  if (entry.youtube_id) return { videoId: entry.youtube_id, ytMusicVideoId: undefined };
   if (Array.isArray(entry.links)) {
-    const yt = entry.links.find(l => l.site === 'youtube' || l.site === 'youtubeMusic');
-    if (yt?.url) {
+    const ytLink      = entry.links.find(l => l.site === 'youtube');
+    const ytMusicLink = entry.links.find(l => l.site === 'youtubeMusic');
+    function parseId(link) {
+      if (!link?.url) return undefined;
       try {
-        const u = new URL(yt.url);
+        const u = new URL(link.url);
         return u.searchParams.get('v') || u.pathname.split('/').pop() || undefined;
-      } catch { /* skip */ }
+      } catch { return undefined; }
     }
+    return {
+      videoId:        parseId(ytLink) || parseId(ytMusicLink),
+      ytMusicVideoId: parseId(ytMusicLink),
+    };
   }
-  return undefined;
+  return { videoId: undefined, ytMusicVideoId: undefined };
 }
 
 function normalise(entry) {
@@ -57,8 +70,8 @@ function normalise(entry) {
   const artists = Array.isArray(track.artists) ? track.artists : [];
   const artist  = artists[0]?.name || (typeof artists[0] === 'string' ? artists[0] : 'Unknown');
   const playedAt = entry.timestamp || entry.start_time || new Date().toISOString();
-  const videoId  = extractVideoId(entry);
-  return { id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, title, artist, playedAt, videoId };
+  const { videoId, ytMusicVideoId } = extractVideoIds(entry);
+  return { id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, title, artist, playedAt, videoId, ytMusicVideoId };
 }
 
 function isSameSong(a, b) {
@@ -108,15 +121,6 @@ async function fetchYouTubeMusicIds(query, headers) {
   return Array.from(html.matchAll(/"videoId":"([a-zA-Z0-9_-]{11})"/g)).map(m => m[1]);
 }
 
-async function fetchYouTubeWebIds(query, headers) {
-  const q = encodeURIComponent(query);
-  const url = `https://www.youtube.com/results?search_query=${q}`;
-  const res = await fetch(url, { headers, signal: AbortSignal.timeout(10_000) });
-  if (!res.ok) return [];
-  const html = await res.text();
-  return Array.from(html.matchAll(/"videoId":"([a-zA-Z0-9_-]{11})"/g)).map(m => m[1]);
-}
-
 async function resolveVideoIdByArtist(artist, title = '') {
   const artistKey = String(artist || '').trim().toLowerCase();
   const titleKey = String(title || '').trim().toLowerCase();
@@ -135,36 +139,17 @@ async function resolveVideoIdByArtist(artist, title = '') {
   };
 
   const allIds = [];
-  const exactQuery = titleKey ? `${artist} ${title}` : artist;
+  // Append "official" to bias toward music videos over auto-generated Topic channel tracks.
+  const exactQuery = titleKey ? `${artist} ${title} official` : `${artist} official`;
   try {
     allIds.push(...await fetchYouTubeMusicIds(exactQuery, headers));
-  } catch {
-    // Try fallback sources below.
-  }
+  } catch { /* fall through */ }
 
-  // music.youtube.com often omits inline video IDs; fallback to youtube.com HTML.
-  if (!allIds.length) {
-    try {
-      allIds.push(...await fetchYouTubeWebIds(exactQuery, headers));
-    } catch {
-      // Try fallback query below.
-    }
-  }
-
-  // If artist+title has no hits, fall back to artist-only.
+  // If artist+title has no hits, fall back to artist-only search on YouTube Music.
   if (!allIds.length && titleKey) {
     try {
-      allIds.push(...await fetchYouTubeMusicIds(artist, headers));
-    } catch {
-      // Continue to web fallback below.
-    }
-    if (!allIds.length) {
-      try {
-        allIds.push(...await fetchYouTubeWebIds(artist, headers));
-      } catch {
-        // Return null below.
-      }
-    }
+      allIds.push(...await fetchYouTubeMusicIds(`${artist} official`, headers));
+    } catch { /* fall through */ }
   }
 
   const uniq = [...new Set(allIds)].slice(0, 40);
@@ -204,6 +189,10 @@ async function poll() {
     if (!entries.length) return;
 
     const song = normalise(entries[0]);
+    if (isBannedArtist(song.artist)) {
+      console.log(`[poller] ⛔ Banned: ${song.artist} — ${song.title}`);
+      return;
+    }
     if (!isSameSong(lastSong, song)) {
       song.id  = `${Date.now()}-${Math.random().toString(36).slice(2)}`; // unique per play
       lastSong = song;
@@ -223,7 +212,7 @@ async function bootstrap() {
   try {
     const data    = await fetchStation();
     const entries = (data.most_recent ?? data.results ?? []).slice(0, BOOT_SONGS);
-    history  = entries.map(normalise);
+    history  = entries.map(normalise).filter(s => !isBannedArtist(s.artist));
     lastSong = history[0] ?? null;
     console.log(`[server] Bootstrapped ${history.length} songs from "${STATION}"`);
   } catch (err) {
@@ -263,11 +252,23 @@ app.get('/api/history', (_req, res) => {
 // Resolve a playable videoId by artist for replacement fallback.
 app.get('/api/resolve-video', async (req, res) => {
   try {
-    const artist = String(req.query.artist || '').trim();
-    const title = String(req.query.title || '').trim();
+    const artist  = String(req.query.artist  || '').trim();
+    const title   = String(req.query.title   || '').trim();
+    const exclude = String(req.query.exclude || '').trim();
     if (!artist) return res.status(400).json({ error: 'artist query param required' });
 
-    const videoId = await resolveVideoIdByArtist(artist, title);
+    let videoId;
+    // If the caller wants to skip a specific ID (e.g. it failed to embed), serve a different one.
+    if (exclude) {
+      const key    = `${artist.toLowerCase()}|${title.toLowerCase()}`;
+      const cached = videoSearchCache.get(key);
+      if (cached && Array.isArray(cached.videoIds)) {
+        const remaining = cached.videoIds.filter(id => id !== exclude);
+        if (remaining.length) videoId = remaining[Math.floor(Math.random() * remaining.length)];
+      }
+    }
+
+    if (!videoId) videoId = await resolveVideoIdByArtist(artist, title);
     if (!videoId) return res.status(404).json({ error: 'no video found' });
 
     res.json({ artist, title, videoId });

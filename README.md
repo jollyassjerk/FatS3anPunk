@@ -50,12 +50,12 @@ git clone https://github.com/jollyassjerk/FatS3anPunk.git
 cd FatS3anPunk
 npm install
 
-# 3. Run (defaults to Green Day's Idiot Nation station)
+# 3. Run
 node server.js
 # → http://localhost:3000
 
 # Run a different station
-XMPLAYLIST_STATION=factionpunk node server.js
+XMPLAYLIST_STATION=somestationslug node server.js
 ```
 
 ### Keep It Running (systemd — recommended)
@@ -71,7 +71,7 @@ After=network.target
 WorkingDirectory=/home/$USER/FatS3anPunk
 ExecStart=/usr/bin/node server.js
 Restart=on-failure
-Environment=XMPLAYLIST_STATION=factionpunk
+Environment=XMPLAYLIST_STATION=greendaysidiotnation
 Environment=PORT=3000
 
 [Install]
@@ -87,14 +87,14 @@ sudo systemctl status fats3anpunk
 
 ```bash
 npm install -g pm2
-XMPLAYLIST_STATION=factionpunk pm2 start server.js --name fats3anpunk
+XMPLAYLIST_STATION=greendaysidiotnation pm2 start server.js --name fats3anpunk
 pm2 save && pm2 startup
 ```
 
 ### Keep It Running (nohup)
 
 ```bash
-XMPLAYLIST_STATION=factionpunk nohup node server.js > punk.log 2>&1 &
+XMPLAYLIST_STATION=greendaysidiotnation nohup node server.js > punk.log 2>&1 &
 ```
 
 ## Configuration
@@ -103,7 +103,7 @@ All config via environment variables — no config files needed:
 
 | Variable | Default | Description |
 |---|---|---|
-| `XMPLAYLIST_STATION` | `greendaysidiotnation` | Station slug from xmplaylist.com |
+| `XMPLAYLIST_STATION` | *(required)* | Station slug from xmplaylist.com |
 | `PORT` | `3000` | HTTP port to listen on |
 | `POLL_INTERVAL_MS` | `30000` | How often to poll xmplaylist (ms) |
 
@@ -111,6 +111,6 @@ All config via environment variables — no config files needed:
 
 Go to [xmplaylist.com](https://xmplaylist.com), pick a station, and copy the slug from the URL:
 ```
-https://xmplaylist.com/station/factionpunk
-                                ^^^^^^^^^^^  ← this is XMPLAYLIST_STATION
+https://xmplaylist.com/station/greendaysidiotnation
+                                ^^^^^^^^^^^^^^^^^^  ← this is XMPLAYLIST_STATION
 ```

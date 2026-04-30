@@ -67,7 +67,7 @@ VITE_YOUTUBE_API_KEY=<from Vercel dashboard — never commit>
 
 ### Backend (Railway dashboard)
 ```
-XMPLAYLIST_STATION=factionpunk
+XMPLAYLIST_STATION=greendaysidiotnation
 POLL_INTERVAL_MS=30000
 PORT=3001
 ```

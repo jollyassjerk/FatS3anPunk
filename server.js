@@ -4,7 +4,7 @@
  * Node 18+ required (uses built-in fetch).
  *
  * Usage:
- *   XMPLAYLIST_STATION=factionpunk node server.js
+ *   XMPLAYLIST_STATION=greendaysidiotnation node server.js
  */
 
 import express from 'express';

@@ -1,6 +1,6 @@
 ---
 name: xmplaylist-scraper
-description: 'Polling strategy and parsing logic for xmplaylist.com now-playing data. Use when building or modifying the backend service that monitors https://xmplaylist.com/station/factionpunk and detects song changes.'
+description: 'Polling strategy and parsing logic for xmplaylist.com now-playing data. Use when building or modifying the backend service that monitors https://xmplaylist.com/station/greendaysidiotnation and detects song changes.'
 ---
 
 # XMPlaylist Scraper
@@ -15,7 +15,7 @@ description: 'Polling strategy and parsing logic for xmplaylist.com now-playing 
 The scraper is a **server-side polling service** (Node.js/Cloudflare Worker/Vercel Edge Function). It must NOT run in the browser to avoid CORS errors and to centralize caching.
 
 ```
-xmplaylist.com/station/factionpunk
+xmplaylist.com/station/greendaysidiotnation
   └─ polled every 30s by server
        └─ diffed against last known track
             └─ if changed → push to clients via SSE or WebSocket
@@ -30,16 +30,16 @@ xmplaylist.com/station/factionpunk
 
 ## Parsing
 
-XMPlaylist exposes a JSON API (not just HTML). The endpoint for Faction Punk is:
+XMPlaylist exposes a JSON API (not just HTML). The endpoint for Green Day's Idiot Nation is:
 
 ```
-GET https://xmplaylist.com/api/station/factionpunk
+GET https://xmplaylist.com/api/station/greendaysidiotnation
 ```
 
 Response shape (as of 2026):
 ```json
 {
-  "station": { "id": "factionpunk", "name": "Faction Punk" },
+  "station": { "id": "greendaysidiotnation", "name": "Green Day's Idiot Nation" },
   "most_recent": [
     {
       "track": {

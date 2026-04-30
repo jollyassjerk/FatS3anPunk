@@ -305,6 +305,14 @@ button:disabled { opacity: 0.3; cursor: default; }
 <script>
 'use strict';
 
+// ── Base path — works whether served at / or /music/ or any subpath ──────────
+// Strips any trailing filename so /music/index.html and /music/ both give /music
+var API_BASE = (function () {
+  var p = window.location.pathname;
+  p = p.endsWith('/') ? p.slice(0, -1) : p.substring(0, p.lastIndexOf('/'));
+  return p; // '' when at root, '/music' when at /music/
+}());
+
 // ── YouTube IFrame singleton ─────────────────────────────────────────────────
 var ytPlayer  = null;
 var ytReady   = false;
@@ -454,7 +462,7 @@ async function resolveVideoIdForSong(songLike) {
   if (!artist) return null;
 
   var title = songLike && songLike.title ? String(songLike.title).trim() : '';
-  var qs = '/api/resolve-video?artist=' + encodeURIComponent(artist);
+  var qs = API_BASE + '/api/resolve-video?artist=' + encodeURIComponent(artist);
   if (title) qs += '&title=' + encodeURIComponent(title);
 
   try {
@@ -871,7 +879,7 @@ var esRetryMs = 2000;
 
 function connectSSE() {
   if (es) { es.close(); }
-  es = new EventSource('/api/live');
+  es = new EventSource(API_BASE + '/api/live');
 
   es.addEventListener('message', function (e) {
     try {
@@ -890,7 +898,7 @@ function connectSSE() {
 }
 
 // ── Bootstrap history from REST then open SSE ────────────────────────────────
-fetch('/api/history')
+fetch(API_BASE + '/api/history')
   .then(function (r) { return r.json(); })
   .then(function (data) {
     var songs = (data.songs || []).slice(0, 10);

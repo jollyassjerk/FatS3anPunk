@@ -1,7 +1,7 @@
 /**
  * FatS3anPunk — Thin Edition
- * One file. One dependency. Zero build step.
- * Node 18+ required (uses built-in fetch).
+ * One file. No build step.
+ * Node 16+ supported (uses node-fetch polyfill on Node < 18).
  *
  * Usage:
  *   XMPLAYLIST_STATION=greendaysidiotnation node server.js
@@ -10,6 +10,15 @@
 import express from 'express';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+
+// Polyfill fetch for Node < 18
+if (typeof fetch === 'undefined') {
+  const { default: nodeFetch, Headers: NodeHeaders, Request: NodeRequest, Response: NodeResponse } = await import('node-fetch');
+  global.fetch    = nodeFetch;
+  global.Headers  = NodeHeaders;
+  global.Request  = NodeRequest;
+  global.Response = NodeResponse;
+}
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
